@@ -78,21 +78,22 @@ suite =
         , test "element fail 2" <| expectFail "<a>"
         , test "element fail 3" <| expectFail "<1>"
         , test "element fail 4" <| expectFail "<a></b>"
-        , test "attribute 1" <| expectSucceed """<a b=""/>""" (Element "a" [ Attribute "b" "" ] [])
-        , test "attribute 2" <| expectSucceed """<a b="1=</>"/>""" (Element "a" [ Attribute "b" "1=</>" ] [])
-        , test "attribute quote 1" <| expectSucceed """<a b='""'/>""" (Element "a" [ Attribute "b" "\"\"" ] [])
-        , test "attribute quote 2" <| expectSucceed """<a b="''"/>""" (Element "a" [ Attribute "b" "''" ] [])
-        , test "attribute key number" <| expectSucceed """<a 1=""/>""" (Element "a" [ Attribute "1" "" ] [])
-        , test "attribute key unicode 1" <| expectSucceed """<a あ=""/>""" (Element "a" [ Attribute "あ" "" ] [])
-        , test "attribute key unicode 2" <| expectSucceed """<a 😄=""/>""" (Element "a" [ Attribute "😄" "" ] [])
-        , test "attribute key surrogate pairs" <| expectSucceed """<a 𩸽=""/>""" (Element "a" [ Attribute "𩸽" "" ] [])
-        , test "attribute key namespace" <| expectSucceed """<a b:c=""/>""" (Element "a" [ Attribute "b:c" "" ] [])
+        , test "attribute 1" <| expectSucceed """<a b=""/>""" (Element "a" [ Attribute "b" "" Nothing ] [])
+        , test "attribute 2" <| expectSucceed """<a b="1=</>"/>""" (Element "a" [ Attribute "b" "1=</>" Nothing ] [])
+        , test "attribute quote 1" <| expectSucceed """<a b='""'/>""" (Element "a" [ Attribute "b" "\"\"" Nothing ] [])
+        , test "attribute quote 2" <| expectSucceed """<a b="''"/>""" (Element "a" [ Attribute "b" "''" Nothing ] [])
+        , test "attribute key number" <| expectSucceed """<a 1=""/>""" (Element "a" [ Attribute "1" "" Nothing ] [])
+        , test "attribute key unicode 1" <| expectSucceed """<a あ=""/>""" (Element "a" [ Attribute "あ" "" Nothing ] [])
+        , test "attribute key unicode 2" <| expectSucceed """<a 😄=""/>""" (Element "a" [ Attribute "😄" "" Nothing ] [])
+        , test "attribute key surrogate pairs" <| expectSucceed """<a 𩸽=""/>""" (Element "a" [ Attribute "𩸽" "" Nothing ] [])
+        , test "attribute key namespace" <| expectSucceed """<a b:c=""/>""" (Element "a" [ Attribute "b:c" "" Nothing ] [])
+        , test "attribute key with declared namespace" <| expectSucceed """<svg xmlns:c="http://cns.org"><a c:d=""/></svg>""" (Element "svg" [ Attribute "xmlns:c" "http://cns.org" Nothing ] [ Element "a" [ Attribute "c:d" "" (Just "http://cns.org") ] [] ])
         , test "attribute fail 1" <| expectFail """<a a=/>"""
         , test "attribute fail 2" <| expectFail """<a a"="/>"""
         , test "attribute fail 3" <| expectFail """<a=""/>"""
         , test "attribute fail 4" <| expectFail """<a b c=""/>"""
         , test "attribute fail 5" <| expectFail """<a= b=""/>"""
-        , test "attribute value escape 1" <| expectSucceed """<a a="&quot;"/>""" (Element "a" [ Attribute "a" "\"" ] [])
+        , test "attribute value escape 1" <| expectSucceed """<a a="&quot;"/>""" (Element "a" [ Attribute "a" "\"" Nothing ] [])
         , test "attribute fail same names" <| expectFail """<a b="" b=""/>"""
         , test "children text" <| expectSucceed "<a>1</a>" (Element "a" [] [ Text "1" ])
         , test "children text escape 1" <| expectSucceed "<a>&amp;</a>" (Element "a" [] [ Text "&" ])
@@ -145,7 +146,7 @@ suite =
         , test "whitespace 1" <| expectSucceed "\x0D\n\t <?xml ?>\x0D\n\t <!DOCTYPE a []>\x0D\n\t <a/>\x0D\n\t " (Element "a" [] [])
         , test "whitespace 2" <|
             expectSucceed "<a\x0D\n\tb\x0D\n\t=\x0D\n\t\"c\"\x0D\n\td\x0D\n\t=\x0D\n\t\"e\"/>"
-                (Element "a" [ Attribute "b" "c", Attribute "d" "e" ] [])
+                (Element "a" [ Attribute "b" "c" Nothing, Attribute "d" "e" Nothing ] [])
         , test "whitespace 3" <| expectSucceed "<a></a>" (Element "a" [] [])
         , test "whitespace 4" <| expectSucceed "<a> </a>" (Element "a" [] [ Text " " ])
         , test "whitespace 5" <| expectSucceed "<a>\x0D\n\t</a>" (Element "a" [] [ Text "\x0D\n\t" ])
@@ -162,10 +163,10 @@ suite =
         , test "format 1" <|
             testFormat
                 (Xml [] Nothing <|
-                    Element "a" [ Attribute "b" "c", Attribute "d" "e" ] [ Element "f" [] [], Text "g", Element "h" [] [] ]
+                    Element "a" [ Attribute "b" "c" Nothing, Attribute "d" "e" Nothing ] [ Element "f" [] [], Text "g", Element "h" [] [] ]
                 )
         , test "format 2" <| testFormat (Xml [] Nothing <| Element "a" [] [])
-        , test "format 3" <| testFormat (Xml [] Nothing <| Element "😄" [ Attribute "😄" "&><'\"" ] [ Text "&><'\"" ])
+        , test "format 3" <| testFormat (Xml [] Nothing <| Element "😄" [ Attribute "😄" "&><'\"" Nothing ] [ Text "&><'\"" ])
         , test "format 4" <| testFormat (Xml [] (Just (DocType "1" <| Public "a" "b" Nothing)) <| Element "a" [] [])
         , test "format 5" <| testFormat (Xml [] (Just (DocType "1" <| Public "a" "b" (Just "c"))) <| Element "a" [] [])
         , test "format 6" <| testFormat (Xml [] (Just (DocType "1" <| System "a" Nothing)) <| Element "a" [] [])

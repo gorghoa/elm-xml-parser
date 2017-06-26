@@ -12,14 +12,21 @@ module XmlParser
 
 {-| The XML Parser.
 
+
 # Types
+
 @docs Xml, ProcessingInstruction, DocType, DocTypeDefinition, Node, Attribute
 
+
 # Parse
+
 @docs parse
 
+
 # Format
+
 @docs format
+
 -}
 
 import Parser exposing (..)
@@ -30,11 +37,20 @@ import Dict exposing (Dict)
 import Hex
 
 
+{-| Store xml namespace encountered in parsed document
+
+    `xmlns:elm="http://elm.org" => {"elm" = "http://elm.org"}`
+
+-}
+type alias Namespaces =
+    Dict String String
+
+
 {-| This represents the entire XML structure.
 
-* processingInstructions: `<?xml-stylesheet type="text/xsl" href="style.xsl"?>`
-* docType: `<!DOCTYPE root SYSTEM "foo.xml">`
-* root: `<root><foo/></root>`
+  - processingInstructions: `<?xml-stylesheet type="text/xsl" href="style.xsl"?>`
+  - docType: `<!DOCTYPE root SYSTEM "foo.xml">`
+  - root: `<root><foo/></root>`
 
 -}
 type alias Xml =
@@ -69,9 +85,9 @@ type alias DocType =
 
 {-| DTD (Doc Type Definition)
 
-* Public: `<!DOCTYPE root PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">`
-* System: `<!DOCTYPE root SYSTEM "foo.xml">`
-* Custom: `<!DOCTYPE root [ <!ELEMENT ...> ]>`
+  - Public: `<!DOCTYPE root PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">`
+  - System: `<!DOCTYPE root SYSTEM "foo.xml">`
+  - Custom: `<!DOCTYPE root [ <!ELEMENT ...> ]>`
 
 -}
 type DocTypeDefinition
@@ -90,18 +106,16 @@ type Node
 {-| Attribute such as `name="value"`
 -}
 type alias Attribute =
-    { name : String, value : String }
+    { name : String, value : String, namespace : Maybe String }
 
 
 {-| Parse XML string.
 
 `<?xml ... ?>` and `<!DOCTYPE ... >` is optional so you don't need to ensure them.
 
-```
-> import XmlParser
-> XmlParser.parse """<a name="value">foo</a>"""
-Ok { processingInstructions = [], docType = Nothing, root = Element "a" ([{ name = "name", value = "value" }]) ([Text "foo"]) }
-```
+    > import XmlParser
+    > XmlParser.parse """<a name="value">foo</a>"""
+    Ok { processingInstructions = [], docType = Nothing, root = Element "a" ([{ name = "name", value = "value" }]) ([Text "foo"]) }
 
 -}
 parse : String -> Result Parser.Error Xml
@@ -122,7 +136,7 @@ xml =
             |. repeat zeroOrMore (oneOf [ whiteSpace1, comment ])
             |= maybe docType
             |. repeat zeroOrMore (oneOf [ whiteSpace1, comment ])
-            |= element
+            |= element Dict.empty
             |. repeat zeroOrMore (oneOf [ whiteSpace1, comment ])
             |. end
 
@@ -256,27 +270,80 @@ cdataContent =
             ]
 
 
-element : Parser Node
-element =
+{-| Store the xml namespaces declarations encountered during the parsing process
+-}
+fillNamespacesBucket : Namespaces -> List Attribute -> Namespaces
+fillNamespacesBucket namespaces attrs =
+    case attrs of
+        [] ->
+            namespaces
+
+        attribute :: rest ->
+            case String.split ":" attribute.name of
+                [ "xmlns", key ] ->
+                    fillNamespacesBucket (Dict.insert key attribute.value namespaces) rest
+
+                _ ->
+                    fillNamespacesBucket namespaces rest
+
+
+{-| Update an attribute with a xml namespace from a dict of encountered namespaces
+-}
+processingAttributesWithNamespaces : Namespaces -> List Attribute -> List Attribute
+processingAttributesWithNamespaces namespaces attrs =
+    attrs
+        |> List.map
+            (\a ->
+                case String.split ":" a.name of
+                    ns :: _ ->
+                        { a | namespace = Dict.get ns namespaces }
+
+                    _ ->
+                        a
+            )
+
+
+element : Namespaces -> Parser Node
+element namespaces =
     inContext "element" <|
         succeed identity
             |. symbol "<"
             |= (tagName
                     |> andThen
                         (\startTagName ->
-                            succeed (Element startTagName)
+                            succeed identity
                                 |. whiteSpace
-                                |= attributes Set.empty
-                                |. whiteSpace
-                                |= oneOf
-                                    [ succeed []
-                                        |. symbol "/>"
-                                    , succeed identity
-                                        |. symbol ">"
-                                        |= lazy (\_ -> children startTagName)
-                                    ]
+                                |= (attributes Set.empty namespaces)
+                                |> andThen (processXmlNode startTagName namespaces)
                         )
                )
+
+
+{-| Apply some processing to a just parsed xml node
+
+    * Create a Node Element
+    * Update namespaces bucket
+    * Set attribute's namespace when needed
+
+-}
+processXmlNode : String -> Namespaces -> List Attribute -> Parser Node
+processXmlNode startTagName namespaces attrs =
+    let
+        elem =
+            Element startTagName
+
+        updatedNamespaces =
+            attrs |> fillNamespacesBucket namespaces
+    in
+        succeed (elem (attrs |> (processingAttributesWithNamespaces updatedNamespaces)))
+            |. whiteSpace
+            |= oneOf
+                [ succeed []
+                    |. symbol "/>"
+                , succeed identity
+                    |. symbol ">"
+                    |= lazy (\_ -> children startTagName updatedNamespaces)
+                ]
 
 
 tagName : Parser String
@@ -285,8 +352,8 @@ tagName =
         keep oneOrMore (\c -> not (isWhitespace c) && c /= '/' && c /= '<' && c /= '>' && c /= '"' && c /= '\'' && c /= '=')
 
 
-children : String -> Parser (List Node)
-children startTagName =
+children : String -> Namespaces -> Parser (List Node)
+children startTagName namespaces =
     inContext "children" <|
         oneOf
             [ succeed []
@@ -297,7 +364,7 @@ children startTagName =
                         case maybeString of
                             Just s ->
                                 succeed (\rest -> Text s :: rest)
-                                    |= children startTagName
+                                    |= children startTagName namespaces
 
                             Nothing ->
                                 succeed []
@@ -306,8 +373,8 @@ children startTagName =
             , lazy
                 (\_ ->
                     succeed (::)
-                        |= element
-                        |= children startTagName
+                        |= element namespaces
+                        |= children startTagName namespaces
                 )
             ]
 
@@ -446,8 +513,8 @@ entities =
         ]
 
 
-attributes : Set String -> Parser (List Attribute)
-attributes keys =
+attributes : Set String -> Namespaces -> Parser (List Attribute)
+attributes keys namespaces =
     inContext "attributes" <|
         oneOf
             [ attribute
@@ -458,7 +525,7 @@ attributes keys =
                         else
                             succeed ((::) attr)
                                 |. whiteSpace
-                                |= attributes (Set.insert attr.name keys)
+                                |= attributes (Set.insert attr.name keys) namespaces
                     )
             , succeed []
             ]
@@ -486,6 +553,7 @@ attribute =
             |. symbol "="
             |. whiteSpace
             |= attributeValue
+            |= succeed Nothing
 
 
 attributeName : Parser String
